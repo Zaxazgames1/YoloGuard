@@ -45,3 +45,46 @@ def open_fastest_webcam(camera_index=0, resolution=(1280, 720), target_fps=30):
     
     print(f"Cámara abierta en {time.time() - start_time:.3f} segundos")
     return cap
+
+def get_available_cameras(max_cameras=10):
+    """
+    Detecta cámaras disponibles en el sistema.
+    
+    Args:
+        max_cameras (int): Número máximo de cámaras a verificar
+        
+    Returns:
+        list: Lista de tuplas (índice, nombre, estado) de cámaras disponibles
+    """
+    available_cameras = []
+    for i in range(max_cameras):
+        try:
+            # En Windows, DirectShow es más rápido y proporciona más información
+            if platform.system() == 'Windows':
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            else:
+                cap = cv2.VideoCapture(i)
+            
+            if cap.isOpened():
+                # Intentar obtener información de la cámara
+                # La mayoría de cámaras no reportan esta info correctamente,
+                # así que ponemos valores alternativos
+                ret, frame = cap.read()
+                if ret:
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    name = f"Cámara {i} ({width}x{height})"
+                else:
+                    name = f"Cámara {i}"
+                    
+                available_cameras.append((i, name, True))
+                cap.release()
+            else:
+                # Algunos sistemas reportan cámaras aunque no se puedan abrir
+                # Las incluimos pero marcadas como no disponibles
+                available_cameras.append((i, f"Cámara {i} (No disponible)", False))
+        except Exception as e:
+            print(f"Error al verificar cámara {i}: {str(e)}")
+            
+    # Filtrar solo las cámaras disponibles
+    return [cam for cam in available_cameras if cam[2]]

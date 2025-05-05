@@ -47,6 +47,8 @@ class AccessControlSystem(QMainWindow):
             device: Dispositivo de procesamiento (CPU/GPU)
             logger: Logger para registrar mensajes
         """
+        # Añadir después de inicializar las variables de estado en __init__
+       
         super().__init__()
         self.setWindowTitle("Sistema de Control de Acceso - Universidad de Cundinamarca con YoloGuard")
         self.setGeometry(100, 100, 1400, 900)
@@ -65,6 +67,13 @@ class AccessControlSystem(QMainWindow):
         self.detection_cooldown = 3.0  # Segundos entre detecciones para evitar duplicados
         self.process_every_n_frames = 2  # Procesar solo cada n frames para mejor rendimiento
         self.frame_count = 0
+
+        self.camera_settings = {
+        'camera_index': 0,
+        'resolution': '1280x720',
+        'process_every_n_frames': 2,
+        'detection_cooldown': 3.0
+    }
 
         # Inicializar componentes de datos
         self.database_manager = PersonDatabase(mtcnn, facenet)
@@ -824,28 +833,35 @@ class AccessControlSystem(QMainWindow):
     def show_camera_settings(self):
         """Muestra diálogo para configurar los parámetros de la cámara."""
         try:
-            settings_dialog = SettingsDialog(self, camera_settings={
-                'process_every_n_frames': self.process_every_n_frames,
-                'detection_cooldown': self.detection_cooldown
-            })
-            
-            if settings_dialog.exec():
+            settings_dialog = SettingsDialog(self, camera_settings=self.camera_settings)
+        
+            if settings_dialog.exec() == QDialog.DialogCode.Accepted:
                 # Aplicar configuraciones
                 new_settings = settings_dialog.get_settings()
+            
+                # Actualizar configuraciones de cámara
+                self.camera_settings = {
+                    'camera_index': new_settings.get('camera_index', 0),
+                    'resolution': new_settings.get('resolution', '1280x720'),
+                    'process_every_n_frames': new_settings.get('process_every_n_frames', 2),
+                    'detection_cooldown': new_settings.get('detection_cooldown', 3.0)
+                }
+            
+                # Actualizar variables de la clase
                 self.process_every_n_frames = new_settings.get('process_every_n_frames', 2)
                 self.detection_cooldown = new_settings.get('detection_cooldown', 3.0)
-                
+            
                 # Actualizar configuración en el procesador de frames
                 if hasattr(self, 'frame_processor'):
                     self.frame_processor.process_every_n_frames = self.process_every_n_frames
-                
+            
                 self.logger.log_message("✅ Configuración de cámara actualizada")
-                
+            
                 # Reiniciar la cámara si está activa
                 if self.is_camera_running:
                     self.toggle_camera()  # Detener
                     self.toggle_camera()  # Iniciar con nueva configuración
-                    
+                
         except Exception as e:
             self.logger.log_message(f"❌ Error en configuración de cámara: {str(e)}")
             QMessageBox.critical(self, "Error", f"Error en configuración de cámara: {str(e)}")
@@ -1380,27 +1396,41 @@ class AccessControlSystem(QMainWindow):
         """Guarda el log en un archivo."""
         self.logger.save_log(self)
 
+    # Busca la función toggle_camera en gui/main_window.py y reemplázala con esta versión:
+
     def toggle_camera(self):
         """Activa o desactiva la cámara."""
         if not self.is_camera_running:
             try:
+                # Obtener el índice de cámara de la configuración
+                camera_index = self.camera_settings.get('camera_index', 0)
+            
+                # Obtener la resolución de la configuración
+                resolution_str = self.camera_settings.get('resolution', '1280x720')
+                try:
+                    width, height = map(int, resolution_str.split('x'))
+                    resolution = (width, height)
+                except Exception:
+                    resolution = (1280, 720)  # Valor predeterminado
+            
                 # Usar el método optimizado para abrir la cámara
-                self.camera = open_fastest_webcam(0, resolution=(1280, 720), target_fps=TARGET_FPS)
+                self.camera = open_fastest_webcam(camera_index, resolution=resolution, target_fps=TARGET_FPS)
+            
                 if self.camera is not None and self.camera.isOpened():
                     # Iniciar el procesador de frames si no está activo
                     if not self.frame_processor.isRunning():
                         self.frame_processor.start()
-                    
+                
                     self.timer.start(1000 // TARGET_FPS)  # Actualizar a la frecuencia objetivo
                     self.is_camera_running = True
                     self.start_button.setText("⏹ Detener Monitoreo")
-                    self.logger.log_message(f"🎥 Monitoreo iniciado a {TARGET_FPS} FPS")
-                    
+                    self.logger.log_message(f"🎥 Monitoreo iniciado a {TARGET_FPS} FPS con Cámara {camera_index}")
+                
                     # Actualizar status bar
                     self.update_stats()
                 else:
-                    self.logger.log_message("❌ Error: No se pudo acceder a la cámara")
-                    QMessageBox.warning(self, "Error", "No se pudo acceder a la cámara. Verifique la conexión.")
+                    self.logger.log_message(f"❌ Error: No se pudo acceder a la cámara {camera_index}")
+                    QMessageBox.warning(self, "Error", f"No se pudo acceder a la cámara {camera_index}. Verifique la conexión o seleccione otra cámara en Configuración.")
             except Exception as e:
                 self.logger.log_message(f"❌ Error al iniciar cámara: {str(e)}")
                 QMessageBox.critical(self, "Error", f"Error al iniciar cámara: {str(e)}")
@@ -1410,17 +1440,17 @@ class AccessControlSystem(QMainWindow):
             if self.camera is not None:
                 self.camera.release()
                 self.camera = None
-            
+        
             # No detener el procesador de frames, solo dejamos de enviarle frames
             self.is_camera_running = False
             self.start_button.setText("🎥 Iniciar Monitoreo")
             self.video_label.clear()
             self.detection_info.setText("Esperando detecciones...")
             self.logger.log_message("⏹ Monitoreo detenido")
-            
+        
             # Actualizar status bar
             self.update_stats()
-            
+        
             # Liberar memoria
             gc.collect()
             torch.cuda.empty_cache() if torch.cuda.is_available() else None

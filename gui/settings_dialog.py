@@ -5,11 +5,12 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QTabWidget, QWidget, QFormLayout,
     QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit,
-    QFileDialog, QGroupBox
+    QFileDialog, QGroupBox, QProgressDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt
 
 from config.constants import TARGET_FPS
+from utils.camera import get_available_cameras
 
 class SettingsDialog(QDialog):
     """Diálogo para la configuración de la aplicación."""
@@ -26,6 +27,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Configuración")
         self.setMinimumSize(500, 400)
         self.camera_settings = camera_settings or {}
+        self.available_cameras = []
         self.setup_ui()
         
     def setup_ui(self):
@@ -38,10 +40,47 @@ class SettingsDialog(QDialog):
         camera_tab = QWidget()
         camera_layout = QFormLayout(camera_tab)
         
-        # Selector de cámara
+        # Mostrar un diálogo de progreso mientras se detectan las cámaras
+        progress = QProgressDialog("Detectando cámaras...", "Cancelar", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        
+        # Detectar cámaras disponibles
+        try:
+            self.available_cameras = get_available_cameras()
+            progress.setValue(100)
+        except Exception as e:
+            QMessageBox.warning(self, "Advertencia", f"Error al detectar cámaras: {str(e)}")
+            self.available_cameras = []
+            progress.setValue(100)
+        
+        # Selector de cámara mejorado
         self.camera_selector = QComboBox()
         self.camera_selector.setMinimumHeight(35)
-        self.camera_selector.addItems([f"Cámara {i}" for i in range(5)])
+        
+        if self.available_cameras:
+            for idx, name, _ in self.available_cameras:
+                self.camera_selector.addItem(name, idx)  # Guardar el índice como userData
+        else:
+            self.camera_selector.addItem("Cámara predeterminada", 0)
+        
+        # Establecer la cámara actual
+        current_camera_index = self.camera_settings.get('camera_index', 0)
+        for i in range(self.camera_selector.count()):
+            if self.camera_selector.itemData(i) == current_camera_index:
+                self.camera_selector.setCurrentIndex(i)
+                break
+        
+        # Botón para reescanear las cámaras
+        rescan_cameras_btn = QPushButton("Reescanear")
+        rescan_cameras_btn.setMinimumHeight(35)
+        rescan_cameras_btn.clicked.connect(self.rescan_cameras)
+        
+        # Layout horizontal para el selector de cámara y el botón
+        camera_selector_layout = QHBoxLayout()
+        camera_selector_layout.addWidget(self.camera_selector)
+        camera_selector_layout.addWidget(rescan_cameras_btn)
         
         # Selector de resolución
         self.resolution_selector = QComboBox()
@@ -95,7 +134,7 @@ class SettingsDialog(QDialog):
         cooldown_label = QLabel("Tiempo entre detecciones:")
         cooldown_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         
-        camera_layout.addRow(cam_label, self.camera_selector)
+        camera_layout.addRow(cam_label, camera_selector_layout)
         camera_layout.addRow(res_label, self.resolution_selector)
         camera_layout.addRow(fps_label, self.fps_spinner)
         camera_layout.addRow(conf_label, self.confidence_spinner)
@@ -162,6 +201,43 @@ class SettingsDialog(QDialog):
         layout.addLayout(buttons_layout)
         
         self.setLayout(layout)
+    
+    def rescan_cameras(self):
+        """Vuelve a escanear las cámaras disponibles."""
+        try:
+            progress = QProgressDialog("Reescaneando cámaras...", "Cancelar", 0, 100, self)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            
+            # Guardar la selección actual
+            current_selection = self.camera_selector.currentData()
+            
+            # Limpiar lista actual
+            self.camera_selector.clear()
+            
+            # Detectar cámaras
+            self.available_cameras = get_available_cameras()
+            progress.setValue(50)
+            
+            # Llenar el selector
+            if self.available_cameras:
+                for idx, name, _ in self.available_cameras:
+                    self.camera_selector.addItem(name, idx)
+            else:
+                self.camera_selector.addItem("Cámara predeterminada", 0)
+                
+            # Restaurar selección anterior si es posible
+            for i in range(self.camera_selector.count()):
+                if self.camera_selector.itemData(i) == current_selection:
+                    self.camera_selector.setCurrentIndex(i)
+                    break
+                    
+            progress.setValue(100)
+            QMessageBox.information(self, "Información", f"Se encontraron {len(self.available_cameras)} cámaras")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error al buscar cámaras: {str(e)}")
         
     def browse_base_dir(self):
         """Abre un diálogo para seleccionar el directorio base."""
@@ -179,8 +255,11 @@ class SettingsDialog(QDialog):
         Returns:
             dict: Configuración de la aplicación
         """
+        # Obtener el índice de la cámara del dato almacenado, no de la posición en el combobox
+        camera_index = self.camera_selector.currentData()
+        
         return {
-            'camera_index': self.camera_selector.currentIndex(),
+            'camera_index': camera_index,
             'resolution': self.resolution_selector.currentText(),
             'target_fps': self.fps_spinner.value(),
             'min_confidence': self.confidence_spinner.value(),

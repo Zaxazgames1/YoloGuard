@@ -17,10 +17,11 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
     QMenuBar, QMenu, QLabel, QPushButton, QTextEdit, QStatusBar, QProgressDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QTabWidget,
-    QLineEdit, QFormLayout, QScrollArea, QDialog, QFileDialog, QMessageBox
+    QLineEdit, QFormLayout, QScrollArea, QDialog, QFileDialog, QMessageBox,
+    QSizePolicy, QSplitter  # Añadimos estas clases para el responsive
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QTextCharFormat, QTextCursor, QAction
+from PyQt6.QtCore import Qt, QTimer, QSize, QRect
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QTextCharFormat, QTextCursor, QAction, QResizeEvent
 
 from config.constants import BASE_PATH, VERSION, TARGET_FPS, SEDES
 from data.database import PersonDatabase
@@ -67,13 +68,14 @@ class AccessControlSystem(QMainWindow):
         self.detection_cooldown = 3.0  # Segundos entre detecciones para evitar duplicados
         self.process_every_n_frames = 2  # Procesar solo cada n frames para mejor rendimiento
         self.frame_count = 0
+        self.current_layout_mode = "default"  # Para controlar la disposición según el tamaño
 
         self.camera_settings = {
         'camera_index': 0,
         'resolution': '1280x720',
         'process_every_n_frames': 2,
         'detection_cooldown': 3.0
-    }
+        }
 
         # Inicializar componentes de datos
         self.database_manager = PersonDatabase(mtcnn, facenet)
@@ -117,15 +119,31 @@ class AccessControlSystem(QMainWindow):
         self.create_menubar()
         self.update_stats()
         print("Inicialización completa del sistema")
+        
+        # Conectar el evento de redimensionamiento
+        self.resizeEvent = self.on_window_resize
 
     def setup_ui(self):
-        """Configura la interfaz de usuario."""
+        """Configura la interfaz de usuario responsive."""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
-
-        # Panel izquierdo (Video y Control)
-        left_panel = QVBoxLayout()
+        
+        # Usar QSplitter para permitir que el usuario ajuste el tamaño de los paneles
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Contenedores principales
+        left_container = QWidget()
+        right_container = QWidget()
+        
+        # Asignar políticas de tamaño
+        left_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        right_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        
+        # Layouts para los contenedores
+        left_layout = QVBoxLayout(left_container)
+        right_layout = QVBoxLayout(right_container)
+        
+        # PANEL IZQUIERDO (Video y Control)
         
         # Título y logo
         header_layout = QHBoxLayout()
@@ -140,6 +158,7 @@ class AccessControlSystem(QMainWindow):
         painter.drawText(logo_pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "UDEC")
         painter.end()
         logo_label.setPixmap(logo_pixmap)
+        logo_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
         # Título principal con YoloGuard
         title_label = QLabel("Sistema de Control de Acceso\nUniversidad de Cundinamarca")
@@ -148,6 +167,7 @@ class AccessControlSystem(QMainWindow):
             color: #006633;
             font-weight: bold;
         """)
+        title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         
         # Logo YoloGuard
         yologuard_label = QLabel("YoloGuard")
@@ -159,24 +179,27 @@ class AccessControlSystem(QMainWindow):
             border-radius: 8px;
             padding: 5px 10px;
         """)
+        yologuard_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
         header_layout.addWidget(logo_label)
         header_layout.addWidget(title_label, 1)
         header_layout.addWidget(yologuard_label)
-        left_panel.addLayout(header_layout)
+        left_layout.addLayout(header_layout)
         
         # Monitor en tiempo real
         video_container = QGroupBox("Control de Acceso en Tiempo Real")
         video_layout = QVBoxLayout()
         
         self.video_label = QLabel()
-        self.video_label.setMinimumSize(800, 600)
+        self.video_label.setMinimumSize(640, 480)
+        self.video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.video_label.setStyleSheet("""
             background-color: #1E1E1E;
             border-radius: 15px;
             padding: 10px;
             border: 3px solid #006633;
         """)
+        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Centrar el contenido
         video_layout.addWidget(self.video_label)
         
         # Información de detección
@@ -187,10 +210,12 @@ class AccessControlSystem(QMainWindow):
             border-radius: 10px;
             font-size: 16px;
         """)
+        self.detection_info.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.detection_info.setWordWrap(True)  # Permitir ajuste de texto
         video_layout.addWidget(self.detection_info)
         
         video_container.setLayout(video_layout)
-        left_panel.addWidget(video_container)
+        left_layout.addWidget(video_container)
 
         # Panel de control
         control_container = QGroupBox("Panel de Control")
@@ -201,14 +226,17 @@ class AccessControlSystem(QMainWindow):
         
         self.start_button = QPushButton("🎥 Iniciar Monitoreo")
         self.start_button.setMinimumHeight(45)
+        self.start_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.start_button.clicked.connect(self.toggle_camera)
         
         self.register_button = QPushButton("👤 Nuevo Registro")
         self.register_button.setMinimumHeight(45)
+        self.register_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.register_button.clicked.connect(self.show_registro_persona)
         
         self.report_button = QPushButton("📊 Generar Informe")
         self.report_button.setMinimumHeight(45)
+        self.report_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.report_button.clicked.connect(self.generate_report)
         
         buttons_row1.addWidget(self.start_button)
@@ -220,14 +248,17 @@ class AccessControlSystem(QMainWindow):
         
         self.delete_button = QPushButton("🗑️ Eliminar Registro")
         self.delete_button.setMinimumHeight(45)
+        self.delete_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.delete_button.clicked.connect(self.show_delete_person_dialog)
         
         self.search_button = QPushButton("🔍 Buscar Persona")
         self.search_button.setMinimumHeight(45)
+        self.search_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.search_button.clicked.connect(self.show_search_dialog)
         
         self.stats_button = QPushButton("📈 Estadísticas")
         self.stats_button.setMinimumHeight(45)
+        self.stats_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.stats_button.clicked.connect(self.show_statistics_dialog)
         
         buttons_row2.addWidget(self.delete_button)
@@ -239,13 +270,13 @@ class AccessControlSystem(QMainWindow):
         
         # Agregar todos los botones con el mismo estilo
         control_container.setLayout(control_layout)
-        left_panel.addWidget(control_container)
+        left_layout.addWidget(control_container)
 
-        # Panel derecho (Dashboard y Logs)
-        right_panel = QVBoxLayout()
+        # PANEL DERECHO (Dashboard y Logs)
         
         # Dashboard
         stats_container = QTabWidget()
+        stats_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         
         # Tab de estadísticas generales
         stats_tab = QWidget()
@@ -272,15 +303,17 @@ class AccessControlSystem(QMainWindow):
             border-radius: 10px;
             font-size: 14px;
         """)
+        self.sedes_label.setWordWrap(True)
         sedes_layout.addWidget(self.sedes_label)
         
         stats_container.addTab(stats_tab, "Dashboard General")
         stats_container.addTab(sedes_tab, "Estadísticas por Sede")
         
-        right_panel.addWidget(stats_container)
+        right_layout.addWidget(stats_container)
 
         # Log de actividad
         log_container = QGroupBox("Registro de Actividad")
+        log_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         log_layout = QVBoxLayout()
 
         # Botones de control del log
@@ -288,10 +321,12 @@ class AccessControlSystem(QMainWindow):
 
         clear_log_btn = QPushButton("🗑️ Limpiar Log")
         clear_log_btn.setMinimumHeight(35)
+        clear_log_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         clear_log_btn.clicked.connect(self.clear_log)
 
         save_log_btn = QPushButton("💾 Guardar Log")
         save_log_btn.setMinimumHeight(35)
+        save_log_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         save_log_btn.clicked.connect(self.save_log)
 
         # Buscar en el log
@@ -299,6 +334,8 @@ class AccessControlSystem(QMainWindow):
         self.search_log_input = QLineEdit()
         self.search_log_input.setPlaceholderText("Buscar en el log...")
         self.search_log_input.setMinimumHeight(35)
+        self.search_log_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        
         search_log_btn = QPushButton("🔍")
         search_log_btn.clicked.connect(self.search_log)
         search_log_btn.setMinimumHeight(35)
@@ -344,6 +381,7 @@ class AccessControlSystem(QMainWindow):
                 line-height: 1.5;
             }
         """)
+        self.log_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         log_layout.addLayout(log_buttons_layout)
         log_layout.addLayout(search_log_layout)
@@ -367,11 +405,130 @@ class AccessControlSystem(QMainWindow):
         """)
 
         log_container.setLayout(log_layout)
-        right_panel.addWidget(log_container)
+        right_layout.addWidget(log_container)
 
-        # Agregar paneles al layout principal
-        main_layout.addLayout(left_panel, 2)
-        main_layout.addLayout(right_panel, 1)
+        # Añadir los contenedores al splitter
+        self.main_splitter.addWidget(left_container)
+        self.main_splitter.addWidget(right_container)
+        
+        # Establecer proporción inicial 2:1
+        self.main_splitter.setSizes([2 * self.width() // 3, self.width() // 3])
+        
+        # Layout para el widget central
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.addWidget(self.main_splitter)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+
+    def on_window_resize(self, event):
+        """
+        Maneja el evento de redimensionamiento de la ventana.
+        Ajusta la disposición según el tamaño.
+        
+        Args:
+            event (QResizeEvent): Evento de redimensionamiento
+        """
+        width = event.size().width()
+        height = event.size().height()
+        
+        # Ajustar la disposición según el ancho
+        if width < 1000 and self.current_layout_mode != "compact":
+            self.switch_to_compact_layout()
+        elif width >= 1000 and self.current_layout_mode != "default":
+            self.switch_to_default_layout()
+            
+        # Llamar al método original de redimensionamiento
+        super().resizeEvent(event)
+        
+    def switch_to_compact_layout(self):
+        """Cambia a disposición compacta para pantallas pequeñas."""
+        self.current_layout_mode = "compact"
+        
+        # Cambiar orientación del splitter a vertical
+        self.main_splitter.setOrientation(Qt.Orientation.Vertical)
+        
+        # Ajustar proporciones para favorecer el área de video
+        total_height = self.height()
+        self.main_splitter.setSizes([int(total_height * 0.6), int(total_height * 0.4)])
+        
+        # Ajustar tamaños mínimos
+        self.video_label.setMinimumSize(320, 240)
+        
+        # Ajustar fuentes
+        title_font_size = 18
+        title_style = f"""
+            font-size: {title_font_size}px;
+            color: #006633;
+            font-weight: bold;
+        """
+        
+        # Aplicar estilos adaptados
+        self.update_font_sizes(small=True)
+        
+    def switch_to_default_layout(self):
+        """Vuelve a la disposición normal para pantallas grandes."""
+        self.current_layout_mode = "default"
+        
+        # Cambiar orientación del splitter a horizontal
+        self.main_splitter.setOrientation(Qt.Orientation.Horizontal)
+        
+        # Restablecer proporciones originales
+        total_width = self.width()
+        self.main_splitter.setSizes([int(total_width * 0.66), int(total_width * 0.34)])
+        
+        # Restablecer tamaños mínimos
+        self.video_label.setMinimumSize(640, 480)
+        
+        # Restablecer fuentes
+        self.update_font_sizes(small=False)
+    
+    def update_font_sizes(self, small=False):
+        """
+        Actualiza el tamaño de fuente según el modo.
+        
+        Args:
+            small (bool): Si es True, usa fuentes más pequeñas
+        """
+        # Definir tamaños de fuente según el modo
+        title_size = 18 if small else 24
+        button_size = 12 if small else 14
+        text_size = 12 if small else 14
+        
+        # Aplicar a los diferentes elementos
+        title_style = f"""
+            font-size: {title_size}px;
+            color: #006633;
+            font-weight: bold;
+        """
+        
+        button_style = f"""
+            font-size: {button_size}px;
+        """
+        
+        text_style = f"""
+            font-size: {text_size}px;
+        """
+        
+        # Aplicar estilos - esto es simplificado, idealmente se aplicaría a cada elemento
+        # Aquí solo aplicamos a algunos elementos clave como ejemplo
+        for btn in [self.start_button, self.register_button, self.report_button, 
+                   self.delete_button, self.search_button, self.stats_button]:
+            current_style = btn.styleSheet()
+            btn.setStyleSheet(current_style + button_style)
+        
+        # Estilo del log
+        log_style = f"""
+            QTextEdit {{
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 5px;
+                padding: 10px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: {text_size}px;
+                color: #212529;
+                line-height: 1.5;
+            }}
+        """
+        self.log_text.setStyleSheet(log_style)
 
     def create_menubar(self):
         """Crea la barra de menú de la aplicación."""
@@ -547,6 +704,9 @@ class AccessControlSystem(QMainWindow):
         help_dialog.setWindowTitle("Ayuda del Sistema")
         help_dialog.setMinimumSize(600, 450)
         
+        # Hacer que el diálogo sea responsive
+        help_dialog.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        
         layout = QVBoxLayout()
         help_label = QLabel(help_text)
         help_label.setWordWrap(True)
@@ -584,11 +744,15 @@ class AccessControlSystem(QMainWindow):
         about_dialog.setWindowTitle("Acerca del Sistema")
         about_dialog.setMinimumSize(400, 300)
         
+        # Hacer que el diálogo sea responsive
+        about_dialog.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        
         layout = QVBoxLayout()
         about_label = QLabel(about_text)
         about_label.setStyleSheet("font-size: 14px; line-height: 1.5;")
         about_label.setTextFormat(Qt.TextFormat.RichText)
         about_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        about_label.setWordWrap(True)  # Permitir ajuste de texto
         
         close_btn = QPushButton("Cerrar")
         close_btn.setMinimumHeight(40)
@@ -614,6 +778,9 @@ class AccessControlSystem(QMainWindow):
             stats_dialog = QDialog(self)
             stats_dialog.setWindowTitle("Estadísticas por Sede")
             stats_dialog.setMinimumSize(700, 500)
+            
+            # Hacer que el diálogo sea responsive
+            stats_dialog.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             
             layout = QVBoxLayout()
             
@@ -1021,6 +1188,9 @@ class AccessControlSystem(QMainWindow):
             delete_dialog.setWindowTitle("Eliminar Registro")
             delete_dialog.setMinimumSize(500, 400)
             
+            # Hacer que el diálogo sea responsive
+            delete_dialog.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            
             layout = QVBoxLayout()
             
             # Campo de búsqueda
@@ -1051,6 +1221,9 @@ class AccessControlSystem(QMainWindow):
                     border: 1px solid #D3D3D3;
                 }
             """)
+            
+            # Habilitar ajuste automático de la tabla
+            people_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             
             # Llenar la tabla
             people_list.setRowCount(len(people))
@@ -1185,8 +1358,15 @@ class AccessControlSystem(QMainWindow):
         h, w, ch = rgb_frame.shape
         bytes_per_line = ch * w
         qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-        self.video_label.setPixmap(QPixmap.fromImage(qt_image).scaled(
-            self.video_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
+        
+        # Adaptar la imagen al tamaño actual del contenedor manteniendo la proporción
+        pixmap = QPixmap.fromImage(qt_image)
+        scaled_pixmap = pixmap.scaled(
+            self.video_label.size(), 
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.video_label.setPixmap(scaled_pixmap)
             
         # Actualizar información de detección en la UI
         if identity:
@@ -1395,8 +1575,6 @@ class AccessControlSystem(QMainWindow):
     def save_log(self):
         """Guarda el log en un archivo."""
         self.logger.save_log(self)
-
-    # Busca la función toggle_camera en gui/main_window.py y reemplázala con esta versión:
 
     def toggle_camera(self):
         """Activa o desactiva la cámara."""

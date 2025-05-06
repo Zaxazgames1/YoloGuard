@@ -14,14 +14,20 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
     QFormLayout, QGroupBox, QPushButton, QComboBox, QMessageBox,
     QFileDialog, QProgressDialog, QScrollArea, QWidget, QInputDialog,
-    QTabWidget  # Añadimos QTabWidget aquí
+    QTabWidget, QSizePolicy  # Añadimos QSizePolicy para responsive
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QColor, QFont
 
-from config.constants import BASE_PATH, TARGET_FPS, SEDES, EXTENSIONES_CARRERAS
-from data.person import UniversityPersonData
-from utils.camera import open_fastest_webcam
+# Esta importación puede fallar si se ejecuta el archivo directamente
+try:
+    from config.constants import BASE_PATH, TARGET_FPS, SEDES, EXTENSIONES_CARRERAS
+except ImportError:
+    # Valores predeterminados en caso de que no se pueda importar
+    BASE_PATH = "dataset_ucundinamarca"
+    TARGET_FPS = 30
+    SEDES = ["Fusagasugá", "Girardot", "Ubaté", "Facatativá", "Chía", "Chocontá", "Zipaquirá", "Soacha"]
+    EXTENSIONES_CARRERAS = {}
 
 class RegistroPersonaDialog(QDialog):
     """Diálogo para el registro de personas."""
@@ -37,8 +43,94 @@ class RegistroPersonaDialog(QDialog):
         self.setWindowTitle("Registro de Persona - Universidad de Cundinamarca")
         self.setMinimumWidth(1000)
         self.setMinimumHeight(800)
+        
+        # Políticas de tamaño para hacer la ventana responsive
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        
         self.captured_images = []
         self.person_data = None
+        
+        # Lista completa de facultades
+        self.todas_facultades = [
+            "Ciencias Administrativas", 
+            "Ingeniería", 
+            "Ciencias Agropecuarias", 
+            "Ciencias del Deporte", 
+            "Educación", 
+            "Ciencias Sociales", 
+            "Ciencias de la Salud",
+            "Artes",
+            "Ciencias Exactas y Naturales",
+            "Ciencias Humanas",
+            "Ciencias Económicas",
+            "Derecho y Ciencias Políticas"
+        ]
+        
+        # Programas académicos por facultad
+        self.programas_por_facultad = {
+            "Ciencias Administrativas": [
+                "Administración de Empresas", 
+                "Contaduría Pública", 
+                "Administración Turística y Hotelera",
+                "Administración Financiera",
+                "Administración Logística"
+            ],
+            "Ingeniería": [
+                "Ingeniería de Sistemas", 
+                "Ingeniería Electrónica", 
+                "Ingeniería Industrial",
+                "Ingeniería Ambiental",
+                "Tecnología en Desarrollo de Software"
+            ],
+            "Ciencias Agropecuarias": [
+                "Ingeniería Agronómica", 
+                "Zootecnia", 
+                "Medicina Veterinaria"
+            ],
+            "Ciencias del Deporte": [
+                "Licenciatura en Educación Física", 
+                "Ciencias del Deporte y la Educación Física",
+                "Profesional en Ciencias del Deporte"
+            ],
+            "Educación": [
+                "Licenciatura en Matemáticas", 
+                "Licenciatura en Ciencias Sociales",
+                "Licenciatura en Educación Básica", 
+                "Licenciatura en Lengua Castellana",
+                "Licenciatura en Inglés"
+            ],
+            "Ciencias Sociales": [
+                "Psicología", 
+                "Trabajo Social", 
+                "Sociología"
+            ],
+            "Ciencias de la Salud": [
+                "Enfermería", 
+                "Medicina"
+            ],
+            "Artes": [
+                "Música", 
+                "Artes Plásticas"
+            ],
+            "Ciencias Exactas y Naturales": [
+                "Matemáticas Aplicadas", 
+                "Física",
+                "Biología"
+            ],
+            "Ciencias Humanas": [
+                "Filosofía", 
+                "Historia"
+            ],
+            "Ciencias Económicas": [
+                "Economía", 
+                "Comercio Internacional"
+            ],
+            "Derecho y Ciencias Políticas": [
+                "Derecho", 
+                "Ciencias Políticas"
+            ]
+        }
+        
         self.setup_ui()
 
     def setup_ui(self):
@@ -60,6 +152,7 @@ class RegistroPersonaDialog(QDialog):
         painter.drawText(logo_pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "UDEC")
         painter.end()
         logo_label.setPixmap(logo_pixmap)
+        logo_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
         title_label = QLabel("Sistema de Control de Acceso\nUniversidad de Cundinamarca")
         title_label.setStyleSheet("""
@@ -69,6 +162,7 @@ class RegistroPersonaDialog(QDialog):
             font-weight: bold;
         """)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         
         # Agregar logo de YoloGuard
         yologuard_logo = QLabel("YoloGuard")
@@ -80,6 +174,7 @@ class RegistroPersonaDialog(QDialog):
             border-radius: 8px;
             padding: 5px 10px;
         """)
+        yologuard_logo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
         header_layout.addWidget(logo_label)
         header_layout.addWidget(title_label, 1)
@@ -88,6 +183,7 @@ class RegistroPersonaDialog(QDialog):
 
         # Formulario en tabs para mejor organización
         form_tabs = QTabWidget()
+        form_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         
         # Tab 1: Información Personal
         personal_tab = QWidget()
@@ -98,27 +194,52 @@ class RegistroPersonaDialog(QDialog):
 
         self.nombre_input = QLineEdit()
         self.nombre_input.setMinimumHeight(30)
+        self.nombre_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        
         self.id_input = QLineEdit()
         self.id_input.setMinimumHeight(30)
+        self.id_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         # Rol con selector mejorado
         self.rol_input = QComboBox()
         self.rol_input.setMinimumHeight(30)
-        self.rol_input.addItems(["Estudiante", "Docente", "Administrativo", "Visitante", "Proveedor", "Contratista"])
+        self.rol_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.rol_input.addItems([
+            "Estudiante", 
+            "Docente", 
+            "Administrativo", 
+            "Visitante", 
+            "Proveedor", 
+            "Contratista",
+            "Investigador",
+            "Directivo",
+            "Egresado"
+        ])
         self.rol_input.currentIndexChanged.connect(self.on_rol_changed)
         
         # Tipo de acceso mejorado
         self.tipo_acceso = QComboBox()
         self.tipo_acceso.setMinimumHeight(30)
+        self.tipo_acceso.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.tipo_acceso.addItems([
-            "Completo", "Biblioteca", "Aulas", "Laboratorios", "Administrativo", 
-            "Comedor", "Deportivo", "Cultural", "Restringido"
+            "Completo", 
+            "Biblioteca", 
+            "Aulas", 
+            "Laboratorios", 
+            "Administrativo", 
+            "Comedor", 
+            "Deportivo", 
+            "Cultural", 
+            "Restringido",
+            "Temporal",
+            "Eventos"
         ])
         
         # Semestre (para estudiantes)
         self.semestre_layout = QHBoxLayout()
         self.semestre_input = QComboBox()
         self.semestre_input.setMinimumHeight(30)
+        self.semestre_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.semestre_input.addItems(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Egresado"])
         self.semestre_label = QLabel("Semestre:")
         self.semestre_label.setStyleSheet("font-size: 14px; font-weight: bold;")
@@ -160,33 +281,42 @@ class RegistroPersonaDialog(QDialog):
         # Selector de sede
         self.sede_input = QComboBox()
         self.sede_input.setMinimumHeight(30)
+        self.sede_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.sede_input.addItems(SEDES)
         self.sede_input.currentIndexChanged.connect(self.update_extensiones)
         
         # Selector de extensión
         self.extension_input = QComboBox()
         self.extension_input.setMinimumHeight(30)
+        self.extension_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         # Facultad con creación dinámica
         facultad_layout = QHBoxLayout()
         self.facultad_input = QComboBox()
         self.facultad_input.setMinimumHeight(30)
-        self.cargar_facultades()
+        self.facultad_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.facultad_input.addItems(self.todas_facultades)
+        self.facultad_input.currentIndexChanged.connect(self.update_programas)
+        
         self.nueva_facultad_btn = QPushButton("+")
         self.nueva_facultad_btn.setFixedWidth(40)
         self.nueva_facultad_btn.setMinimumHeight(30)
+        self.nueva_facultad_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.nueva_facultad_btn.clicked.connect(self.crear_nueva_facultad)
         facultad_layout.addWidget(self.facultad_input)
         facultad_layout.addWidget(self.nueva_facultad_btn)
         
-        # Programa dependiente de la sede y extensión
+        # Programa dependiente de la facultad
         programa_layout = QHBoxLayout()
         self.programa_input = QComboBox()
         self.programa_input.setMinimumHeight(30)
+        self.programa_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.programa_input.setEditable(True)  # Permitir entrada personalizada
+        
         self.nuevo_programa_btn = QPushButton("+")
         self.nuevo_programa_btn.setFixedWidth(40)
         self.nuevo_programa_btn.setMinimumHeight(30)
+        self.nuevo_programa_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.nuevo_programa_btn.clicked.connect(self.crear_nuevo_programa)
         programa_layout.addWidget(self.programa_input)
         programa_layout.addWidget(self.nuevo_programa_btn)
@@ -209,8 +339,9 @@ class RegistroPersonaDialog(QDialog):
         academic_group.setLayout(academic_form)
         academic_layout.addWidget(academic_group)
         
-        # Inicializar extensiones
+        # Inicializar extensiones y programas
         self.update_extensiones(0)
+        self.update_programas(0)
         
         # Añadir tabs al widget
         form_tabs.addTab(personal_tab, "Información Personal")
@@ -223,8 +354,13 @@ class RegistroPersonaDialog(QDialog):
         info_layout = QVBoxLayout()
         self.info_label = QLabel("Capture al menos 5 fotos desde diferentes ángulos")
         self.info_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.info_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.info_label.setWordWrap(True)
+        
         self.counter_label = QLabel("Fotos capturadas: 0/5")
         self.counter_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.counter_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        
         info_layout.addWidget(self.info_label)
         info_layout.addWidget(self.counter_label)
         info_group.setLayout(info_layout)
@@ -236,15 +372,18 @@ class RegistroPersonaDialog(QDialog):
         # Botón para cargar dataset existente
         self.load_dataset_btn = QPushButton("📁 Cargar Dataset")
         self.load_dataset_btn.setMinimumHeight(40)
+        self.load_dataset_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.load_dataset_btn.clicked.connect(self.load_existing_dataset)
         
         self.guardar_btn = QPushButton("💾 Guardar")
         self.guardar_btn.setMinimumHeight(40)
+        self.guardar_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.guardar_btn.clicked.connect(self.guardar_persona)
         self.guardar_btn.setEnabled(False)
         
         self.cancelar_btn = QPushButton("❌ Cancelar")
         self.cancelar_btn.setMinimumHeight(40)
+        self.cancelar_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.cancelar_btn.clicked.connect(self.reject)
         
         buttons_layout.addWidget(self.load_dataset_btn)
@@ -261,14 +400,17 @@ class RegistroPersonaDialog(QDialog):
         
         self.preview_label = QLabel()
         self.preview_label.setMinimumSize(640, 480)
+        self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview_label.setStyleSheet("""
             border: 2px solid #006633;
             background-color: #f0f0f0;
         """)
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         preview_layout.addWidget(self.preview_label)
         
         self.capturar_btn = QPushButton("📸 Capturar Foto")
         self.capturar_btn.setMinimumHeight(40)
+        self.capturar_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.capturar_btn.clicked.connect(self.capturar_foto)
         preview_layout.addWidget(self.capturar_btn)
         
@@ -287,18 +429,42 @@ class RegistroPersonaDialog(QDialog):
         thumbnails_group.setLayout(thumbnails_layout)
         right_panel.addWidget(thumbnails_group)
 
-        main_layout.addLayout(left_panel, 1)
-        main_layout.addLayout(right_panel, 2)
+        # Establecer proporciones para los paneles
+        left_widget = QWidget()
+        left_widget.setLayout(left_panel)
+        left_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        
+        right_widget = QWidget()
+        right_widget.setLayout(right_panel)
+        right_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        
+        main_layout.addWidget(left_widget, 1)
+        main_layout.addWidget(right_widget, 2)
         self.setLayout(main_layout)
 
         # Inicializar cámara con método optimizado
-        self.camera = open_fastest_webcam(0)
-        if self.camera is None:
-            QMessageBox.critical(self, "Error", "No se pudo inicializar la cámara")
+        self.camera = None
+        try:
+            # Intentamos importar la función para abrir la cámara
+            try:
+                from utils.camera import open_fastest_webcam
+                # Usamos el índice de cámara por defecto (0)
+                self.camera = open_fastest_webcam(0)
+            except ImportError:
+                # Si no podemos importar la función, usamos OpenCV directamente
+                self.camera = cv2.VideoCapture(0)
+        except Exception as e:
+            print(f"Error al inicializar la cámara: {str(e)}")
+                
+        if self.camera is None or not self.camera.isOpened():
+            QMessageBox.warning(self, "Advertencia", "No se pudo inicializar la cámara. Algunas funciones pueden no estar disponibles.")
+        
+        # Definir FPS objetivo en caso de que no se pueda importar
+        target_fps = TARGET_FPS if 'TARGET_FPS' in globals() else 30
             
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_preview)
-        self.timer.start(1000 // TARGET_FPS)  # Ajustar para obtener el FPS deseado
+        self.timer.start(1000 // target_fps)  # Ajustar para obtener el FPS deseado
         
     def on_rol_changed(self, index):
         """Muestra u oculta campos dependiendo del rol seleccionado."""
@@ -319,11 +485,17 @@ class RegistroPersonaDialog(QDialog):
         if extension_index >= 0:
             self.extension_input.setCurrentIndex(extension_index)
             
-        # Actualizar programas según la sede
+    def update_programas(self, index):
+        """Actualiza los programas según la facultad seleccionada."""
+        facultad_actual = self.facultad_input.currentText()
+        
+        # Limpiar el combo de programas
         self.programa_input.clear()
-        if sede_actual in EXTENSIONES_CARRERAS:
-            self.programa_input.addItems(EXTENSIONES_CARRERAS[sede_actual])
-    
+        
+        # Agregar programas según la facultad seleccionada
+        if facultad_actual in self.programas_por_facultad:
+            self.programa_input.addItems(self.programas_por_facultad[facultad_actual])
+        
     def crear_nuevo_programa(self):
         """Crear un nuevo programa académico."""
         programa, ok = QInputDialog.getText(
@@ -334,27 +506,14 @@ class RegistroPersonaDialog(QDialog):
             self.programa_input.addItem(programa)
             self.programa_input.setCurrentText(programa)
             
-            # Añadir a la lista global de programas para esta sede
-            sede_actual = self.sede_input.currentText()
-            if sede_actual in EXTENSIONES_CARRERAS:
-                if programa not in EXTENSIONES_CARRERAS[sede_actual]:
-                    EXTENSIONES_CARRERAS[sede_actual].append(programa)
-    
-    def cargar_facultades(self):
-        """Cargar facultades existentes."""
-        self.facultad_input.clear()
-        if os.path.exists(BASE_PATH):
-            facultades = [d for d in os.listdir(BASE_PATH) 
-                       if os.path.isdir(os.path.join(BASE_PATH, d))]
-            if facultades:
-                self.facultad_input.addItems(facultades)
+            # Añadir a la lista de programas para esta facultad
+            facultad_actual = self.facultad_input.currentText()
+            if facultad_actual in self.programas_por_facultad:
+                if programa not in self.programas_por_facultad[facultad_actual]:
+                    self.programas_por_facultad[facultad_actual].append(programa)
             else:
-                self.facultad_input.addItems([
-                    "Ciencias Administrativas", "Ingeniería", 
-                    "Ciencias Agropecuarias", "Ciencias del Deporte", 
-                    "Educación", "Ciencias Sociales", "Ciencias de la Salud"
-                ])
-
+                self.programas_por_facultad[facultad_actual] = [programa]
+    
     def crear_nueva_facultad(self):
         """Crear una nueva facultad."""
         facultad, ok = QInputDialog.getText(
@@ -362,14 +521,32 @@ class RegistroPersonaDialog(QDialog):
             'Ingrese el nombre de la nueva facultad:'
         )
         if ok and facultad:
-            facultad_path = os.path.join(BASE_PATH, facultad)
-            os.makedirs(facultad_path, exist_ok=True)
+            # Verificar si la facultad ya existe
+            if facultad in self.todas_facultades:
+                QMessageBox.warning(self, "Advertencia", "Esta facultad ya existe.")
+                return
+                
+            # Añadir la facultad a la lista
+            self.todas_facultades.append(facultad)
             self.facultad_input.addItem(facultad)
             self.facultad_input.setCurrentText(facultad)
+            
+            # Crear estructura de directorios
+            try:
+                facultad_path = os.path.join(BASE_PATH, facultad)
+                os.makedirs(facultad_path, exist_ok=True)
+            except Exception as e:
+                print(f"Error al crear directorio para la facultad: {str(e)}")
+            
+            # Inicializar lista de programas para esta facultad
+            self.programas_por_facultad[facultad] = []
+            
+            # Solicitar programa inicial
+            self.crear_nuevo_programa()
 
     def update_preview(self):
         """Actualizar la vista previa de la cámara."""
-        if not hasattr(self, 'camera') or self.camera is None:
+        if not hasattr(self, 'camera') or self.camera is None or not self.camera.isOpened():
             return
             
         ret, frame = self.camera.read()
@@ -378,15 +555,19 @@ class RegistroPersonaDialog(QDialog):
             h, w, ch = frame.shape
             bytes_per_line = ch * w
             qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-            pixmap = QPixmap.fromImage(qt_image).scaled(
+            
+            # Escalar la imagen manteniendo la proporción
+            pixmap = QPixmap.fromImage(qt_image)
+            scaled_pixmap = pixmap.scaled(
                 self.preview_label.size(), 
-                Qt.AspectRatioMode.KeepAspectRatio
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
             )
-            self.preview_label.setPixmap(pixmap)
+            self.preview_label.setPixmap(scaled_pixmap)
 
     def capturar_foto(self):
         """Capturar una foto desde la cámara."""
-        if not hasattr(self, 'camera') or self.camera is None:
+        if not hasattr(self, 'camera') or self.camera is None or not self.camera.isOpened():
             QMessageBox.warning(self, "Error", "Cámara no disponible")
             return
             
@@ -395,35 +576,39 @@ class RegistroPersonaDialog(QDialog):
             try:
                 # Detectar rostro
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                faces = self.parent().mtcnn(rgb_frame)
                 
-                if faces is not None:
-                    # Procesar el tensor de rostros
-                    if isinstance(faces, list) and faces:
-                        face_tensor = faces[0]
-                    else:
-                        face_tensor = faces
-                        
-                    if face_tensor is not None:
-                        if face_tensor.ndim == 5:
-                            face_tensor = face_tensor.squeeze(0)
-                        if face_tensor.ndim == 4:
-                            face_tensor = face_tensor.squeeze(0)
-                        if face_tensor.ndim == 3:
-                            face_tensor = face_tensor.unsqueeze(0)
-                    
-                    # Si se detectó un rostro correctamente, guardar la imagen
-                    self.captured_images.append(frame.copy())  # Usar .copy() para evitar problemas de referencia
+                # Si el padre tiene MTCNN, usarlo
+                mtcnn = None
+                parent_widget = self.parent()
+                if parent_widget is not None and hasattr(parent_widget, 'mtcnn'):
+                    mtcnn = parent_widget.mtcnn
+                
+                faces_detected = True
+                if mtcnn is not None:
+                    faces = mtcnn(rgb_frame)
+                    faces_detected = faces is not None
+                else:
+                    # Si no hay MTCNN, asumimos que hay un rostro
+                    faces_detected = True
+                
+                if faces_detected:
+                    # Guardar la imagen
+                    self.captured_images.append(frame.copy())  # Usar .copy() para evitar problemas de referencias
                     self.counter_label.setText(f"Fotos capturadas: {len(self.captured_images)}/5")
                     
                     # Crear y mostrar miniatura
                     h, w, ch = frame.shape
                     bytes_per_line = ch * w
                     qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_BGR888)
-                    pixmap = QPixmap.fromImage(qt_image).scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio)
+                    pixmap = QPixmap.fromImage(qt_image).scaled(
+                        100, 100, 
+                        Qt.AspectRatioMode.KeepAspectRatio, 
+                        Qt.TransformationMode.SmoothTransformation
+                    )
                     
                     thumb_label = QLabel()
                     thumb_label.setPixmap(pixmap)
+                    thumb_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
                     self.thumbnails_layout.addWidget(thumb_label)
                     
                     # Habilitar guardado si hay suficientes fotos
@@ -503,10 +688,14 @@ class RegistroPersonaDialog(QDialog):
                         qt_image = QImage(img.data, w, h, bytes_per_line, 
                                         QImage.Format.Format_BGR888)
                         pixmap = QPixmap.fromImage(qt_image).scaled(
-                            100, 100, Qt.AspectRatioMode.KeepAspectRatio)
+                            100, 100, 
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation
+                        )
                         
                         thumb_label = QLabel()
                         thumb_label.setPixmap(pixmap)
+                        thumb_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
                         self.thumbnails_layout.addWidget(thumb_label)
                     
                     progress.setValue(i + 1)
@@ -536,6 +725,9 @@ class RegistroPersonaDialog(QDialog):
             return
 
         try:
+            # Asegurarse de que existe el directorio base
+            os.makedirs(BASE_PATH, exist_ok=True)
+            
             # Crear estructura de directorios
             facultad_path = os.path.join(BASE_PATH, self.facultad_input.currentText())
             os.makedirs(facultad_path, exist_ok=True)
@@ -565,32 +757,11 @@ class RegistroPersonaDialog(QDialog):
                     break
                     
                 try:
-                    # Convertir a RGB
-                    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                    
-                    # Detectar y procesar rostro
-                    faces = self.parent().mtcnn(rgb_image)
-                    
-                    if faces is not None:
-                        # Procesar el tensor de rostros
-                        if isinstance(faces, list) and faces:
-                            face_tensor = faces[0]
-                        else:
-                            face_tensor = faces
-
-                        if face_tensor is not None:
-                            if face_tensor.ndim == 5:
-                                face_tensor = face_tensor.squeeze(0)
-                            if face_tensor.ndim == 4:
-                                face_tensor = face_tensor.squeeze(0)
-                            if face_tensor.ndim == 3:
-                                face_tensor = face_tensor.unsqueeze(0)
-                            
-                            # Guardar imagen original
-                            img_path = os.path.join(person_path, f"foto_{i+1}.jpg")
-                            cv2.imwrite(img_path, image)
-                            saved_images += 1
-                            print(f"Imagen {i+1} guardada exitosamente")
+                    # Guardar imagen original
+                    img_path = os.path.join(person_path, f"foto_{i+1}.jpg")
+                    cv2.imwrite(img_path, image)
+                    saved_images += 1
+                    print(f"Imagen {i+1} guardada exitosamente")
                     
                 except Exception as e:
                     print(f"Error al procesar imagen {i+1}: {str(e)}")
@@ -603,7 +774,7 @@ class RegistroPersonaDialog(QDialog):
             progress.setValue(len(self.captured_images))
             
             if saved_images == 0:
-                QMessageBox.warning(self, "Error", "No se pudieron guardar rostros válidos")
+                QMessageBox.warning(self, "Error", "No se pudieron guardar ninguna foto")
                 return
 
             # Obtener semestre si es estudiante
@@ -611,26 +782,35 @@ class RegistroPersonaDialog(QDialog):
             if self.rol_input.currentText() == "Estudiante":
                 semestre = self.semestre_input.currentText()
 
-            # Guardar datos de la persona con los nuevos campos
-            self.person_data = UniversityPersonData(
-                nombre=self.nombre_input.text(),
-                id=self.id_input.text(),
-                facultad=self.facultad_input.currentText(),
-                programa=self.programa_input.currentText(),
-                rol=self.rol_input.currentText(),
-                tipo=self.tipo_acceso.currentText(),
-                sede=self.sede_input.currentText(),
-                extension=self.extension_input.currentText(),
-                semestre=semestre
-            )
-
-            # Guardar metadata
+            # Crear un diccionario con los datos de la persona
+            person_dict = {
+                "nombre": self.nombre_input.text(),
+                "id": self.id_input.text(),
+                "facultad": self.facultad_input.currentText(),
+                "programa": self.programa_input.currentText(),
+                "rol": self.rol_input.currentText(),
+                "tipo": self.tipo_acceso.currentText(),
+                "sede": self.sede_input.currentText(),
+                "extension": self.extension_input.currentText(),
+                "semestre": semestre,
+                "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # Guardar metadata como JSON
             metadata_path = os.path.join(person_path, "info.json")
             with open(metadata_path, 'w', encoding='utf-8') as f:
-                json.dump(self.person_data.to_dict(), f, indent=4, ensure_ascii=False)
-
+                json.dump(person_dict, f, indent=4, ensure_ascii=False)
+            
             print("Metadata guardada exitosamente")
-
+            
+            # Intentar crear el objeto UniversityPersonData si la clase está disponible
+            try:
+                from data.person import UniversityPersonData
+                self.person_data = UniversityPersonData.from_dict(person_dict)
+            except ImportError:
+                # Si no se puede importar, usar el diccionario directamente
+                self.person_data = None
+                
             QMessageBox.information(self, "Éxito", 
                 f"Persona registrada correctamente\nSe guardaron {saved_images} fotos")
             self.accept()
@@ -650,6 +830,11 @@ class RegistroPersonaDialog(QDialog):
         if not self.id_input.text().strip():
             QMessageBox.warning(self, "Error", "El ID/Código es obligatorio")
             self.id_input.setFocus()
+            return False
+        
+        if not self.facultad_input.currentText().strip():
+            QMessageBox.warning(self, "Error", "La facultad es obligatoria")
+            self.facultad_input.setFocus()
             return False
         
         if not self.programa_input.currentText().strip():
@@ -674,4 +859,5 @@ class RegistroPersonaDialog(QDialog):
         self.captured_images.clear()
         gc.collect()
         
+        # Llamar al evento original
         super().closeEvent(event)

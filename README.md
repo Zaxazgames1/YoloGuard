@@ -1,7 +1,7 @@
 # YoloGuard - Sistema de Control de Acceso Universidad de Cundinamarca
 
 <div align="center">
-  <img src="resources/images/yologuard_logo.png" alt="YoloGuard Logo" width="200">
+  <img src="resources/images/Logo_YoloGuard.jpg" alt="YoloGuard Logo" width="200">
   <h3>Control de Acceso Inteligente basado en Reconocimiento Facial</h3>
   <p>Desarrollado por Johan Sebastian Rojas Ramirez</p>
 </div>

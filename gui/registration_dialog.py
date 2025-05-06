@@ -142,15 +142,26 @@ class RegistroPersonaDialog(QDialog):
         
         # Header con logo y título
         header_layout = QHBoxLayout()
+        
+        # CAMBIO AQUÍ: Usar la imagen del logo de UDEC en lugar de dibujarla
         logo_label = QLabel()
-        # Crear una imagen placeholder verde con "UDEC"
-        logo_pixmap = QPixmap(150, 60)
-        logo_pixmap.fill(QColor(0, 102, 51))  # Verde institucional
-        painter = QPainter(logo_pixmap)
-        painter.setPen(QColor(255, 255, 255))
-        painter.setFont(QFont("Arial", 20, QFont.Weight.Bold))
-        painter.drawText(logo_pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "UDEC")
-        painter.end()
+        logo_udec_path = "resources/images/Logo_YoloGuard.jpg"  # Ruta al logo actualizada
+        
+        if os.path.exists(logo_udec_path):
+            # Si existe el archivo de imagen, lo cargamos
+            logo_pixmap = QPixmap(logo_udec_path)
+            # Escalamos el logo a un tamaño adecuado
+            logo_pixmap = logo_pixmap.scaled(150, 60, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        else:
+            # Si no existe, creamos un logo placeholder
+            logo_pixmap = QPixmap(150, 60)
+            logo_pixmap.fill(QColor(0, 102, 51))  # Verde institucional
+            painter = QPainter(logo_pixmap)
+            painter.setPen(QColor(255, 255, 255))
+            painter.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+            painter.drawText(logo_pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "UDEC")
+            painter.end()
+            
         logo_label.setPixmap(logo_pixmap)
         logo_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
@@ -809,7 +820,7 @@ class RegistroPersonaDialog(QDialog):
                 self.person_data = UniversityPersonData.from_dict(person_dict)
             except ImportError:
                 # Si no se puede importar, usar el diccionario directamente
-                self.person_data = None
+                self.person_data = person_dict
                 
             QMessageBox.information(self, "Éxito", 
                 f"Persona registrada correctamente\nSe guardaron {saved_images} fotos")

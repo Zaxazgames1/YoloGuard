@@ -7,6 +7,7 @@ import cv2
 import json
 import torch
 import shutil
+import uuid
 import traceback
 import numpy as np
 from datetime import datetime
@@ -14,7 +15,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
     QFormLayout, QGroupBox, QPushButton, QComboBox, QMessageBox,
     QFileDialog, QProgressDialog, QScrollArea, QWidget, QInputDialog,
-    QTabWidget, QSizePolicy  # Añadimos QSizePolicy para responsive
+    QTabWidget, QSizePolicy, QCheckBox  # Añadimos QCheckBox para opción de ID automático
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QColor, QFont
@@ -49,6 +50,8 @@ class RegistroPersonaDialog(QDialog):
         
         self.captured_images = []
         self.person_data = None
+        self.existing_faces = {}  # Para comprobar rostros existentes
+        self.load_existing_faces()  # Cargar rostros existentes para comparación
         
         # Lista completa de facultades
         self.todas_facultades = [
@@ -65,6 +68,22 @@ class RegistroPersonaDialog(QDialog):
             "Ciencias Económicas",
             "Derecho y Ciencias Políticas"
         ]
+        
+        # Prefijos para cada facultad (para IDs únicos)
+        self.prefijos_facultad = {
+            "Ciencias Administrativas": "ADM", 
+            "Ingeniería": "ING", 
+            "Ciencias Agropecuarias": "AGR", 
+            "Ciencias del Deporte": "DEP", 
+            "Educación": "EDU", 
+            "Ciencias Sociales": "SOC", 
+            "Ciencias de la Salud": "SAL",
+            "Artes": "ART",
+            "Ciencias Exactas y Naturales": "CEN",
+            "Ciencias Humanas": "HUM",
+            "Ciencias Económicas": "ECO",
+            "Derecho y Ciencias Políticas": "DER"
+        }
         
         # Programas académicos por facultad
         self.programas_por_facultad = {
@@ -131,7 +150,104 @@ class RegistroPersonaDialog(QDialog):
             ]
         }
         
+        # Abreviaciones para programas (para IDs únicos)
+        self.abreviaciones_programa = {}
+        for facultad, programas in self.programas_por_facultad.items():
+            for programa in programas:
+                # Generar abreviación: primeras letras de cada palabra
+                palabras = programa.split()
+                abreviacion = ""
+                for palabra in palabras:
+                    if palabra.lower() not in ['de', 'en', 'la', 'el', 'los', 'las', 'y']:
+                        abreviacion += palabra[0]
+                self.abreviaciones_programa[programa] = abreviacion
+        
         self.setup_ui()
+
+    def load_existing_faces(self):
+        """Carga embeddings faciales existentes para comparación."""
+        try:
+            if not os.path.exists(BASE_PATH):
+                return
+                
+            # Si el padre tiene el modelo facenet, lo usamos para extraer embeddings
+            parent_widget = self.parent()
+            if parent_widget is None or not hasattr(parent_widget, 'facenet'):
+                return
+                
+            facenet = parent_widget.facenet
+            mtcnn = parent_widget.mtcnn
+            
+            # Recorremos todas las personas registradas
+            for facultad in os.listdir(BASE_PATH):
+                facultad_path = os.path.join(BASE_PATH, facultad)
+                if not os.path.isdir(facultad_path):
+                    continue
+                
+                for persona in os.listdir(facultad_path):
+                    persona_path = os.path.join(facultad_path, persona)
+                    if not os.path.isdir(persona_path):
+                        continue
+                    
+                    # Cargar metadata para obtener ID
+                    info_path = os.path.join(persona_path, "info.json")
+                    if not os.path.exists(info_path):
+                        continue
+                        
+                    try:
+                        with open(info_path, 'r', encoding='utf-8') as f:
+                            person_data = json.load(f)
+                            person_id = person_data.get("id", "")
+                    except Exception:
+                        continue
+                    
+                    # Cargar una imagen para extraer el embedding
+                    image_files = [f for f in os.listdir(persona_path) 
+                                   if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+                    if not image_files:
+                        continue
+                        
+                    # Usar solo la primera imagen
+                    img_path = os.path.join(persona_path, image_files[0])
+                    img = cv2.imread(img_path)
+                    if img is None:
+                        continue
+                        
+                    # Convertir a RGB y detectar rostro
+                    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    faces = mtcnn(rgb_img)
+                    
+                    if faces is not None:
+                        # Procesar el tensor de rostros
+                        if isinstance(faces, list) and faces:
+                            face_tensor = faces[0]
+                        else:
+                            face_tensor = faces
+
+                        if face_tensor is not None:
+                            # Normalizar dimensiones
+                            if face_tensor.ndim == 5:
+                                face_tensor = face_tensor.squeeze(0)
+                            if face_tensor.ndim == 4:
+                                face_tensor = face_tensor.squeeze(0)
+                            if face_tensor.ndim == 3:
+                                face_tensor = face_tensor.unsqueeze(0)
+                                
+                            # Obtener embedding
+                            with torch.no_grad():
+                                embedding = facenet(face_tensor)
+                                embedding_np = embedding.cpu().numpy().flatten()
+                                
+                                # Guardar embedding con el ID
+                                self.existing_faces[person_id] = {
+                                    'embedding': embedding_np,
+                                    'nombre': person_data.get("nombre", ""),
+                                    'facultad': person_data.get("facultad", ""),
+                                    'programa': person_data.get("programa", "")
+                                }
+        except Exception as e:
+            print(f"Error al cargar rostros existentes: {str(e)}")
+            traceback.print_exc()
 
     def setup_ui(self):
         """Configura la interfaz de usuario."""
@@ -143,9 +259,9 @@ class RegistroPersonaDialog(QDialog):
         # Header con logo y título
         header_layout = QHBoxLayout()
         
-        # CAMBIO AQUÍ: Usar la imagen del logo de UDEC en lugar de dibujarla
+        # Usar la imagen del logo
         logo_label = QLabel()
-        logo_udec_path = "resources/images/Logo_YoloGuard.jpg"  # Ruta al logo actualizada
+        logo_udec_path = "resources/images/Logo_YoloGuard.jpg"  # Ruta al logo
         
         if os.path.exists(logo_udec_path):
             # Si existe el archivo de imagen, lo cargamos
@@ -207,9 +323,21 @@ class RegistroPersonaDialog(QDialog):
         self.nombre_input.setMinimumHeight(30)
         self.nombre_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
+        # ID con opción de generación automática
+        id_layout = QHBoxLayout()
         self.id_input = QLineEdit()
         self.id_input.setMinimumHeight(30)
         self.id_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.id_input.setPlaceholderText("Ingrese ID o genere uno automáticamente")
+        
+        self.auto_id_btn = QPushButton("Generar ID")
+        self.auto_id_btn.setFixedWidth(120)
+        self.auto_id_btn.setMinimumHeight(30)
+        self.auto_id_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.auto_id_btn.clicked.connect(self.generate_unique_id)
+        
+        id_layout.addWidget(self.id_input)
+        id_layout.addWidget(self.auto_id_btn)
         
         # Rol con selector mejorado
         self.rol_input = QComboBox()
@@ -274,7 +402,7 @@ class RegistroPersonaDialog(QDialog):
         tipo_label.setStyleSheet(form_label_style)
         
         form_layout.addRow(nombre_label, self.nombre_input)
-        form_layout.addRow(id_label, self.id_input)
+        form_layout.addRow(id_label, id_layout)
         form_layout.addRow(rol_label, self.rol_input)
         form_layout.addRow(tipo_label, self.tipo_acceso)
         form_layout.addRow("", self.semestre_widget)
@@ -308,6 +436,7 @@ class RegistroPersonaDialog(QDialog):
         self.facultad_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.facultad_input.addItems(self.todas_facultades)
         self.facultad_input.currentIndexChanged.connect(self.update_programas)
+        self.facultad_input.currentIndexChanged.connect(self.on_facultad_changed)
         
         self.nueva_facultad_btn = QPushButton("+")
         self.nueva_facultad_btn.setFixedWidth(40)
@@ -323,6 +452,7 @@ class RegistroPersonaDialog(QDialog):
         self.programa_input.setMinimumHeight(30)
         self.programa_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.programa_input.setEditable(True)  # Permitir entrada personalizada
+        self.programa_input.currentIndexChanged.connect(self.on_programa_changed)
         
         self.nuevo_programa_btn = QPushButton("+")
         self.nuevo_programa_btn.setFixedWidth(40)
@@ -476,13 +606,16 @@ class RegistroPersonaDialog(QDialog):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_preview)
         self.timer.start(1000 // target_fps)  # Ajustar para obtener el FPS deseado
-        
+
     def on_rol_changed(self, index):
         """Muestra u oculta campos dependiendo del rol seleccionado."""
         if self.rol_input.currentText() == "Estudiante":
             self.semestre_widget.setVisible(True)
         else:
             self.semestre_widget.setVisible(False)
+            
+        # Sugerir generar un ID nuevo cuando cambia el rol
+        self.suggest_generate_id()
             
     def update_extensiones(self, index):
         """Actualiza las extensiones y programas según la sede seleccionada."""
@@ -506,7 +639,84 @@ class RegistroPersonaDialog(QDialog):
         # Agregar programas según la facultad seleccionada
         if facultad_actual in self.programas_por_facultad:
             self.programa_input.addItems(self.programas_por_facultad[facultad_actual])
+            
+        # Sugerir generar un ID nuevo cuando cambia la facultad
+        self.suggest_generate_id()
         
+    def on_facultad_changed(self, index):
+        """Actualiza información cuando cambia la facultad."""
+        # Sugerir generar un ID nuevo cuando cambia la facultad
+        self.suggest_generate_id()
+
+    def on_programa_changed(self, index):
+        """Actualiza información cuando cambia el programa."""
+        # Sugerir generar un ID nuevo cuando cambia el programa
+        self.suggest_generate_id()
+        
+    def suggest_generate_id(self):
+        """Sugiere generar un ID único si es necesario."""
+        if not self.id_input.text().strip():
+            self.id_input.setPlaceholderText("Haga clic en 'Generar ID' para crear un ID único")
+
+    def generate_unique_id(self):
+        """Genera un ID único para la persona basado en facultad y programa."""
+        try:
+            # Obtener información actual
+            facultad = self.facultad_input.currentText()
+            programa = self.programa_input.currentText()
+            rol = self.rol_input.currentText()
+            
+            # Definir prefijos según el tipo
+            prefijo_facultad = self.prefijos_facultad.get(facultad, "UDC")
+            
+            # Crear el prefijo de programa
+            prefijo_programa = ""
+            if programa in self.abreviaciones_programa:
+                prefijo_programa = self.abreviaciones_programa[programa]
+            else:
+                # Si no hay abreviación, generarla
+                palabras = programa.split()
+                for palabra in palabras:
+                    if palabra.lower() not in ['de', 'en', 'la', 'el', 'los', 'las', 'y']:
+                        prefijo_programa += palabra[0]
+            
+            # Prefijo de rol
+            prefijo_rol = rol[0]
+            
+            # Obtener año actual para el ID
+            año_actual = datetime.now().year % 100  # Solo los dos últimos dígitos
+            
+            # Generar parte numérica única (4 dígitos)
+            numero_aleatorio = str(int(datetime.now().timestamp() * 1000) % 10000).zfill(4)
+            
+            # Formato: FACULTAD-PROGRAMA-ROL-AÑO-XXXX
+            id_unico = f"{prefijo_facultad}-{prefijo_programa}-{prefijo_rol}-{año_actual}-{numero_aleatorio}"
+            
+            # Verificar si ya existe este ID en la base de datos
+            id_existente = True
+            while id_existente:
+                id_existente = False
+                for existing_id in self.existing_faces.keys():
+                    if existing_id == id_unico:
+                        id_existente = True
+                        # Cambiar número aleatorio si ya existe
+                        numero_aleatorio = str(int(datetime.now().timestamp() * 1000) % 10000).zfill(4)
+                        id_unico = f"{prefijo_facultad}-{prefijo_programa}-{prefijo_rol}-{año_actual}-{numero_aleatorio}"
+                        break
+            
+            # Establecer el ID generado
+            self.id_input.setText(id_unico)
+            self.id_input.setStyleSheet("font-weight: bold; color: #006633;")
+            
+            # Mostrar mensaje de confirmación
+            self.info_label.setText(f"ID único generado: {id_unico}")
+            QTimer.singleShot(3000, lambda: self.info_label.setText("Capture al menos 5 fotos desde diferentes ángulos"))
+            
+        except Exception as e:
+            print(f"Error al generar ID único: {str(e)}")
+            self.id_input.setText("")
+            self.id_input.setPlaceholderText("Error al generar ID. Intente de nuevo o ingrese manualmente.")
+
     def crear_nuevo_programa(self):
         """Crear un nuevo programa académico."""
         programa, ok = QInputDialog.getText(
@@ -524,6 +734,14 @@ class RegistroPersonaDialog(QDialog):
                     self.programas_por_facultad[facultad_actual].append(programa)
             else:
                 self.programas_por_facultad[facultad_actual] = [programa]
+                
+            # Crear una abreviación para el nuevo programa
+            palabras = programa.split()
+            abreviacion = ""
+            for palabra in palabras:
+                if palabra.lower() not in ['de', 'en', 'la', 'el', 'los', 'las', 'y']:
+                    abreviacion += palabra[0]
+            self.abreviaciones_programa[programa] = abreviacion
     
     def crear_nueva_facultad(self):
         """Crear una nueva facultad."""
@@ -541,6 +759,14 @@ class RegistroPersonaDialog(QDialog):
             self.todas_facultades.append(facultad)
             self.facultad_input.addItem(facultad)
             self.facultad_input.setCurrentText(facultad)
+            
+            # Crear prefijo para la nueva facultad
+            prefijo = ""
+            palabras = facultad.split()
+            for palabra in palabras:
+                if palabra.lower() not in ['de', 'y', 'en', 'la', 'el', 'los', 'las']:
+                    prefijo += palabra[0]
+            self.prefijos_facultad[facultad] = prefijo
             
             # Crear estructura de directorios
             try:
@@ -576,6 +802,40 @@ class RegistroPersonaDialog(QDialog):
             )
             self.preview_label.setPixmap(scaled_pixmap)
 
+    def check_if_face_exists(self, face_embedding):
+        """
+        Verifica si el rostro ya existe en la base de datos.
+        
+        Args:
+            face_embedding: Vector de características del rostro
+            
+        Returns:
+            tuple: (existe, datos_persona) o (False, None) si no existe
+        """
+        if face_embedding is None or len(self.existing_faces) == 0:
+            return False, None
+            
+        try:
+            threshold = 0.7  # Umbral de similitud
+            
+            for person_id, data in self.existing_faces.items():
+                if 'embedding' in data:
+                    # Calcular distancia (similitud) entre embeddings
+                    embedding_stored = data['embedding']
+                    # Usar np.linalg.norm para calcular la distancia euclidiana
+                    dist = np.linalg.norm(face_embedding - embedding_stored)
+                    # Convertir distancia a similitud [0,1]
+                    similarity = max(0, 1.0 - (dist / 2.0))  
+                    
+                    if similarity > threshold:
+                        return True, data
+            
+            return False, None
+        except Exception as e:
+            print(f"Error al verificar rostro existente: {str(e)}")
+            traceback.print_exc()
+            return False, None
+
     def capturar_foto(self):
         """Capturar una foto desde la cámara."""
         if not hasattr(self, 'camera') or self.camera is None or not self.camera.isOpened():
@@ -590,17 +850,62 @@ class RegistroPersonaDialog(QDialog):
                 
                 # Si el padre tiene MTCNN, usarlo
                 mtcnn = None
+                facenet = None
                 parent_widget = self.parent()
-                if parent_widget is not None and hasattr(parent_widget, 'mtcnn'):
-                    mtcnn = parent_widget.mtcnn
+                if parent_widget is not None:
+                    if hasattr(parent_widget, 'mtcnn'):
+                        mtcnn = parent_widget.mtcnn
+                    if hasattr(parent_widget, 'facenet'):
+                        facenet = parent_widget.facenet
                 
                 faces_detected = True
-                if mtcnn is not None:
+                face_embedding = None
+                
+                if mtcnn is not None and facenet is not None:
                     faces = mtcnn(rgb_frame)
-                    faces_detected = faces is not None
-                else:
-                    # Si no hay MTCNN, asumimos que hay un rostro
-                    faces_detected = True
+                    if faces is not None:
+                        # Procesar el tensor de rostros
+                        if isinstance(faces, list) and faces:
+                            face_tensor = faces[0]
+                        else:
+                            face_tensor = faces
+    
+                        if face_tensor is not None:
+                            # Normalizar dimensiones
+                            if face_tensor.ndim == 5:
+                                face_tensor = face_tensor.squeeze(0)
+                            if face_tensor.ndim == 4:
+                                face_tensor = face_tensor.squeeze(0)
+                            if face_tensor.ndim == 3:
+                                face_tensor = face_tensor.unsqueeze(0)
+                                
+                            faces_detected = True
+                            
+                            # Extraer embedding para comparar con la base de datos
+                            with torch.no_grad():
+                                embedding = facenet(face_tensor)
+                                face_embedding = embedding.cpu().numpy().flatten()
+                                
+                                # Verificar si el rostro ya existe
+                                existe, datos_persona = self.check_if_face_exists(face_embedding)
+                                if existe:
+                                    # Mostrar mensaje de que la persona ya existe
+                                    msg = f"⚠️ El rostro detectado ya existe en la base de datos:\n\n"
+                                    msg += f"Nombre: {datos_persona.get('nombre', 'N/A')}\n"
+                                    msg += f"Facultad: {datos_persona.get('facultad', 'N/A')}\n"
+                                    msg += f"Programa: {datos_persona.get('programa', 'N/A')}\n\n"
+                                    msg += "¿Desea continuar con el registro de todas formas?"
+                                    
+                                    reply = QMessageBox.question(
+                                        self, "Rostro Duplicado", msg,
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No
+                                    )
+                                    
+                                    if reply == QMessageBox.StandardButton.No:
+                                        return
+                    else:
+                        faces_detected = False
                 
                 if faces_detected:
                     # Guardar la imagen
@@ -735,6 +1040,25 @@ class RegistroPersonaDialog(QDialog):
         if not self.validate_inputs():
             return
 
+        # Verificar si el ID ya existe
+        id_persona = self.id_input.text().strip()
+        if id_persona in self.existing_faces:
+            mensaje = f"El ID '{id_persona}' ya existe en la base de datos.\n"
+            mensaje += f"Pertenece a: {self.existing_faces[id_persona].get('nombre', 'N/A')}\n"
+            mensaje += "¿Desea generar un nuevo ID automáticamente?"
+            
+            reply = QMessageBox.question(
+                self, "ID Duplicado", mensaje,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.generate_unique_id()
+                id_persona = self.id_input.text().strip()
+            else:
+                return
+
         try:
             # Asegurarse de que existe el directorio base
             os.makedirs(BASE_PATH, exist_ok=True)
@@ -796,7 +1120,7 @@ class RegistroPersonaDialog(QDialog):
             # Crear un diccionario con los datos de la persona
             person_dict = {
                 "nombre": self.nombre_input.text(),
-                "id": self.id_input.text(),
+                "id": id_persona,  # Usar el ID validado
                 "facultad": self.facultad_input.currentText(),
                 "programa": self.programa_input.currentText(),
                 "rol": self.rol_input.currentText(),
@@ -822,8 +1146,15 @@ class RegistroPersonaDialog(QDialog):
                 # Si no se puede importar, usar el diccionario directamente
                 self.person_data = person_dict
                 
-            QMessageBox.information(self, "Éxito", 
-                f"Persona registrada correctamente\nSe guardaron {saved_images} fotos")
+            # Mensaje de éxito con detalles
+            mensaje = f"Persona registrada correctamente\n\n"
+            mensaje += f"Nombre: {self.nombre_input.text()}\n"
+            mensaje += f"ID: {id_persona}\n"
+            mensaje += f"Facultad: {self.facultad_input.currentText()}\n"
+            mensaje += f"Programa: {self.programa_input.currentText()}\n"
+            mensaje += f"Imágenes guardadas: {saved_images}\n"
+            
+            QMessageBox.information(self, "Registro Exitoso", mensaje)
             self.accept()
 
         except Exception as e:
@@ -839,7 +1170,7 @@ class RegistroPersonaDialog(QDialog):
             return False
         
         if not self.id_input.text().strip():
-            QMessageBox.warning(self, "Error", "El ID/Código es obligatorio")
+            QMessageBox.warning(self, "Error", "El ID/Código es obligatorio.\nPuede generarlo automáticamente con el botón 'Generar ID'.")
             self.id_input.setFocus()
             return False
         

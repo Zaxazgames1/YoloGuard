@@ -179,7 +179,7 @@ YoloGuard está diseñado para funcionar en todas las sedes de la Universidad de
 
 - Correo Electrónico: johansebastianrojasramirez7@gmail.com
 - Teléfono: +573214360157
-- GitHub: [github.com/johansrojas](https://github.com/johansrojas)
+- GitHub: [github.com/Zaxazgames1](https://github.com/Zaxazgames1)
 
 ## 📄 Licencia
 

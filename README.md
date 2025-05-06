@@ -52,7 +52,7 @@ El sistema está diseñado con una arquitectura modular orientada a objetos, lo 
 
 1. Clone el repositorio:
    ```bash
-   git clone https://github.com/johansrojas/yologuard.git
+   git clone https://github.com/Zaxazgames1/YoloGuard.git
    cd yologuard
    ```
 
